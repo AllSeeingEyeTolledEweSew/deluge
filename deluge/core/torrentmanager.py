@@ -192,6 +192,7 @@ class TorrentManager(component.Component):
             self.on_alert_state_changed)
         self.alerts.register_handler("save_resume_data_alert",
             self.on_alert_save_resume_data)
+        self.alerts.register_handler("performance_alert", self.on_alert_performance)
         self.alerts.register_handler("save_resume_data_failed_alert",
             self.on_alert_save_resume_data_failed)
         self.alerts.register_handler("file_renamed_alert",
@@ -1160,6 +1161,23 @@ class TorrentManager(component.Component):
             error_msg = "Problem with resume data: %s" % alert_msg.split(":", 1)[1].strip()
 
         torrent.force_error_state(error_msg, restart_to_resume=True)
+
+    def on_alert_performance(self, alert):
+        """Alert handler for libtorrent performance_alert"""
+        log.warning("on_alert_performance: %s, %s", alert.message(), alert.warning_code)
+        if alert.warning_code == lt.performance_warning_t.send_buffer_watermark_too_low:
+            max_send_buffer_watermark = 100 * 1024 * 1024  # 100MiB
+            settings = self.session.get_settings()
+            send_buffer_watermark = settings["send_buffer_watermark"]
+
+            # If send buffer is too small, try increasing its size by 512KiB (up to max_send_buffer_watermark)
+            if send_buffer_watermark < max_send_buffer_watermark:
+                value = send_buffer_watermark + (500 * 1024)
+                log.info("Increasing send_buffer_watermark from %s to %s Bytes", send_buffer_watermark, value)
+                settings["send_buffer_watermark"] = value
+                self.session.set_settings(settings)
+            else:
+                log.warning("send_buffer_watermark reached maximum value: %s Bytes", max_send_buffer_watermark)
 
     def on_alert_file_renamed(self, alert):
         log.debug("on_alert_file_renamed")
